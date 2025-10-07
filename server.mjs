@@ -1,37 +1,42 @@
 import express from "express";
-import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const server = new McpServer({ name: "feedalpha-calendar", version: "1.0.0" });
 
-// Define input schema with Zod (required by the SDK)
-const inputSchema = z.object({
-  brand: z.string(),
-  audience: z.string(),
-  tone: z.string().optional(),
-  start_date: z.string().optional(),
-  key_dates: z.array(z.string()).optional(),
-  urls: z.array(z.string()).optional(),
-});
+// Plain JSON Schema (no Zod) so the connector creation never sees null/_def
+const inputSchema = {
+  type: "object",
+  properties: {
+    brand: { type: "string", description: "Brand name" },
+    audience: { type: "string", description: "Target audience" },
+    tone: { type: "string", description: "Writing tone", default: "Confident, friendly" },
+    start_date: { type: "string", description: "YYYY-MM-DD", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+    key_dates: { type: "array", items: { type: "string" }, description: "e.g. ['2025-10-15 Product Update']" },
+    urls: { type: "array", items: { type: "string" }, description: "Reference URLs" }
+  },
+  required: ["brand", "audience"],
+  additionalProperties: false
+};
 
-// Register the tool using the supported API
+// Use the object form of `server.tool(...)`
 server.tool(
-  "generateCalendar",
   {
+    name: "generateCalendar",
     description: "Generate a 30-day social calendar + 5 LinkedIn posts.",
-    inputSchema, // do NOT pass null/undefined here
+    inputSchema
   },
   async (args) => {
-    // Validate args from ChatGPT against Zod schema
-    const parsed = inputSchema.parse(args);
+    // Minimal sanity checks (since we dropped Zod here)
+    if (!args?.brand || !args?.audience) {
+      throw new Error("Missing required fields: brand and audience");
+    }
 
-    // Call your existing Lovable function
     const upstream = "https://lovable-content-wiz.lovable.app/functions/v1/generate";
     const res = await fetch(upstream, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed),
+      body: JSON.stringify(args)
     });
     if (!res.ok) {
       const t = await res.text();
@@ -39,12 +44,12 @@ server.tool(
     }
     const data = await res.json();
 
-    // Return valid MCP content. `json` is supported for structured data.
+    // Return both a human stub and structured JSON
     return {
       content: [
         { type: "text", text: "Calendar generated." },
-        { type: "json", value: data },
-      ],
+        { type: "json", value: data }
+      ]
     };
   }
 );
@@ -52,10 +57,8 @@ server.tool(
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-// simple health probe
-app.get("/health", (_req, res) => res.status(200).send("ok"));
+app.get("/health", (_req, res) => res.status(200).send("ok")); // for Render
 
-// ChatGPT will POST here during connector creation & use
 app.post("/mcp", async (req, res) => {
   try {
     const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
@@ -63,7 +66,7 @@ app.post("/mcp", async (req, res) => {
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (e) {
-    console.error("MCP handler error:", e);
+    console.error("MCP error:", e);
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
