@@ -3,15 +3,15 @@ import express from "express";
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-// ---- Tool input schema (JSON Schema)
-const input_schema = {
+// JSON Schema for the tool inputs
+const inputSchema = {
   type: "object",
   properties: {
     brand: { type: "string", description: "Brand name" },
     audience: { type: "string", description: "Target audience" },
     tone: { type: "string", description: "Writing tone", default: "Confident, friendly" },
     start_date: { type: "string", description: "YYYY-MM-DD", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-    key_dates: { type: "array", items: { type: "string" }, description: "['2025-10-15 Product Update']" },
+    key_dates: { type: "array", items: { type: "string" }, description: "e.g., ['2025-10-15 Product Update']" },
     urls: { type: "array", items: { type: "string" }, description: "Reference URLs" }
   },
   required: ["brand", "audience"],
@@ -72,7 +72,7 @@ Instructions:
 Return JSON only.`;
 }
 
-// ---- MCP JSON-RPC over HTTP
+// ---- MCP over HTTP (JSON-RPC)
 async function handleMcp(req, res) {
   const rpc = req.body || {};
   const id = rpc.id ?? null;
@@ -80,18 +80,20 @@ async function handleMcp(req, res) {
 
   try {
     if (method === "initialize") {
+      // ✅ camelCase field names
       return res.json({
         jsonrpc: "2.0",
         id,
         result: {
-          protocol_version: "2024-11-05",
-          server_info: { name: "feedalpha-calendar", version: "1.0.0" },
+          protocolVersion: "2024-11-05",
+          serverInfo: { name: "feedalpha-calendar", version: "1.0.0" },
           capabilities: { tools: {} }
         }
       });
     }
 
     if (method === "tools/list") {
+      // ✅ inputSchema (camelCase)
       return res.json({
         jsonrpc: "2.0",
         id,
@@ -100,7 +102,7 @@ async function handleMcp(req, res) {
             {
               name: "generateCalendar",
               description: "Generate a 30-day social calendar + 5 LinkedIn posts.",
-              input_schema
+              inputSchema // <- camelCase
             }
           ]
         }
@@ -121,7 +123,7 @@ async function handleMcp(req, res) {
         return res.json({ jsonrpc: "2.0", id, error: { code: 500, message: "Server missing OPENAI_API_KEY" } });
       }
 
-      // Call OpenAI directly
+      // Call OpenAI Responses API (JSON mode)
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -134,7 +136,7 @@ async function handleMcp(req, res) {
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: renderUserPrompt(args) }
           ],
-          text: { format: { type: "json_object" } },
+          text: { format: { type: "json_object" } }, // ✅ correct shape
           temperature: 0.7
         })
       });
@@ -172,7 +174,6 @@ async function handleMcp(req, res) {
       });
     }
 
-    // Optional ping
     if (method === "ping") {
       return res.json({ jsonrpc: "2.0", id, result: { ok: true } });
     }
@@ -186,7 +187,7 @@ async function handleMcp(req, res) {
 // Health (Render)
 app.get("/health", (_req, res) => res.status(200).send("ok"));
 
-// Mount at BOTH paths
+// Mount at "/" and "/mcp"
 app.post("/", handleMcp);
 app.post("/mcp", handleMcp);
 
