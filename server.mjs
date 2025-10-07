@@ -134,7 +134,7 @@ async function handleMcp(req, res) {
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: renderUserPrompt(args) }
           ],
-          text: { format: "json_object" },
+          text: { format: { type: "json_object" } },
           temperature: 0.7
         })
       });
